@@ -8,6 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="OA Teaching">
   <link rel="apple-touch-icon" href="icon.png">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -74,13 +75,20 @@
 
     .search-wrap { position: relative; }
     .search-input {
-      width: 100%; padding: 14px 16px;
+      width: 100%; padding: 14px 40px 14px 16px;
       background: var(--card); border: 1.5px solid var(--border);
       border-radius: var(--radius); color: var(--text); font-size: 16px;
       outline: none; transition: border-color 0.15s;
     }
     .search-input:focus { border-color: var(--accent); }
     .search-input::placeholder { color: var(--muted); }
+    .search-clear {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: var(--muted); border: none; border-radius: 50%;
+      width: 20px; height: 20px; display: none; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--bg); font-size: 12px; font-weight: bold; line-height: 1;
+    }
+    .search-clear.visible { display: flex; }
 
     .search-results {
       position: absolute; top: calc(100% + 6px); left: 0; right: 0;
@@ -198,12 +206,23 @@
 
     .pdf-viewer-wrap {
       flex: 1;
-      border-radius: var(--radius); overflow: hidden;
+      border-radius: var(--radius); overflow-y: auto; overflow-x: hidden;
       border: 1.5px solid var(--border);
       background: #fff;
       position: relative;
       height: calc(100dvh - 180px);
       min-height: 400px;
+    }
+    #pdf-canvas-container {
+      width: 100%;
+      background: #525659;
+      display: none;
+    }
+    #pdf-canvas-container canvas {
+      display: block;
+      width: 100% !important;
+      height: auto !important;
+      margin-bottom: 4px;
     }
     .pdf-viewer-wrap iframe {
       width: 100%; height: 100%;
@@ -268,6 +287,7 @@
   <div class="search-wrap">
     <input class="search-input" id="search-input" type="search"
       placeholder="Search topics…" autocomplete="off" autocorrect="off" spellcheck="false">
+    <button class="search-clear" id="search-clear" aria-label="Clear search">✕</button>
     <div class="search-results" id="search-results"></div>
   </div>
 
@@ -277,7 +297,10 @@
 
   <div class="divider">or browse</div>
 
-  <p class="section-label">Categories</p>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+    <p class="section-label" style="margin-bottom:0">Categories</p>
+    <button id="cat-reset-btn" style="display:none;background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer;padding:4px 0">✕ Reset</button>
+  </div>
   <div class="cat-grid" id="cat-grid"></div>
   <div class="cat-topic-list" id="cat-topic-list" style="display:none"></div>
 </div>
@@ -313,7 +336,7 @@
       <div class="spinner"></div>
       <span>Loading summary…</span>
     </div>
-    <iframe id="pdf-frame" title="OA Summary" style="display:none"></iframe>
+    <div id="pdf-canvas-container"></div>
   </div>
 
   <div class="pdf-btn-row">
@@ -680,32 +703,53 @@ function renderQA(qaList) {
 }
 
 // ═══════════════════════════════
-//  PDF DISPLAY (blob → iframe)
+//  PDF DISPLAY (PDF.js — all pages)
 // ═══════════════════════════════
 async function showPDF(link) {
-  const overlay  = document.getElementById('pdf-overlay');
-  const frame    = document.getElementById('pdf-frame');
-  const newTab   = document.getElementById('pdf-newtab-link');
+  const overlay   = document.getElementById('pdf-overlay');
+  const container = document.getElementById('pdf-canvas-container');
+  const newTab    = document.getElementById('pdf-newtab-link');
 
-  overlay.style.display = 'flex';
-  frame.style.display   = 'none';
-  newTab.style.display  = 'none';
+  overlay.style.display   = 'flex';
+  container.style.display = 'none';
+  container.innerHTML     = '';
+  newTab.style.display    = 'none';
 
   try {
+    // Configure PDF.js worker
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
     const resp = await fetch(link);
     if (!resp.ok) throw new Error('fetch failed');
-    const blob    = await resp.blob();
+    const arrayBuf = await resp.arrayBuffer();
+
+    // Also set up new-tab link from blob
+    const blob    = new Blob([arrayBuf], { type: 'application/pdf' });
     const blobUrl = URL.createObjectURL(blob);
-    frame.src = blobUrl;
     newTab.href = blobUrl;
     newTab.style.display = 'block';
-    // onload fires before Chrome's PDF viewer renders — use short delay instead
-    setTimeout(() => {
-      overlay.style.display = 'none';
-      frame.style.display   = 'block';
-    }, 1200);
+
+    if (!window.pdfjsLib) throw new Error('pdf.js not loaded');
+
+    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuf }).promise;
+    overlay.style.display   = 'none';
+    container.style.display = 'block';
+
+    // Render all pages sequentially
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page     = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 2.0 }); // 2x for retina sharpness
+      const canvas   = document.createElement('canvas');
+      canvas.width   = viewport.width;
+      canvas.height  = viewport.height;
+      container.appendChild(canvas);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    }
   } catch (err) {
-    // CORS or fetch failed — show "open in new tab" instead
+    // Fallback: show "open in new tab" instead
     overlay.innerHTML = `
       <div style="text-align:center;padding:24px;color:var(--muted)">
         <div style="font-size:36px;margin-bottom:12px">📄</div>
@@ -746,6 +790,18 @@ async function startQuiz(file) {
 // ═══════════════════════════════
 const searchInput   = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
+const searchClear   = document.getElementById('search-clear');
+
+searchInput.addEventListener('input', () => {
+  searchClear.classList.toggle('visible', searchInput.value.length > 0);
+});
+searchClear.addEventListener('click', () => {
+  searchInput.value = '';
+  searchClear.classList.remove('visible');
+  searchResults.innerHTML = '';
+  searchResults.classList.remove('open');
+  searchInput.focus();
+});
 
 function highlight(text, query) {
   const idx = text.toLowerCase().indexOf(query.toLowerCase());
@@ -828,14 +884,18 @@ function getCategoryPool() {
 }
 
 function updateCategoryView() {
-  const btn  = document.getElementById('random-btn');
-  const list = document.getElementById('cat-topic-list');
+  const btn      = document.getElementById('random-btn');
+  const list     = document.getElementById('cat-topic-list');
+  const resetBtn = document.getElementById('cat-reset-btn');
 
   if (selectedCategories.size === 0) {
-    btn.textContent = '🎲 Random Topic';
-    list.style.display = 'none';
+    btn.textContent      = '🎲 Random Topic';
+    list.style.display   = 'none';
+    resetBtn.style.display = 'none';
     return;
   }
+
+  resetBtn.style.display = 'block';
 
   const pool = getCategoryPool()
     .slice().sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name));
@@ -876,6 +936,12 @@ function buildCategoryGrid() {
       updateCategoryView();
     });
     grid.appendChild(chip);
+  });
+
+  document.getElementById('cat-reset-btn').addEventListener('click', () => {
+    selectedCategories.clear();
+    grid.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
+    updateCategoryView();
   });
 }
 
