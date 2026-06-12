@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>OA Teaching</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --card: #1c1f2e;
+      --card2: #252840;
+      --accent: #4f9eff;
+      --accent2: #6c63ff;
+      --text: #e8eaf0;
+      --muted: #7a849a;
+      --success: #4caf87;
+      --danger: #e05c5c;
+      --border: #2e3250;
+      --radius: 14px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .screen {
+      display: none;
+      width: 100%;
+      max-width: 620px;
+      min-height: 100dvh;
+      padding: 24px 20px 48px;
+      flex-direction: column;
+    }
+    .screen.active { display: flex; }
+
+    /* ── Loading ── */
+    #screen-loading { align-items: center; justify-content: center; gap: 20px; }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-label { color: var(--muted); font-size: 15px; }
+
+    /* ── Error ── */
+    #screen-error { align-items: center; justify-content: center; gap: 16px; text-align: center; }
+    .error-icon { font-size: 48px; }
+    #error-message { color: var(--muted); font-size: 14px; max-width: 300px; line-height: 1.6; }
+
+    /* ── Home ── */
+    #screen-home { gap: 18px; }
+    .app-header { display: flex; align-items: center; justify-content: space-between; }
+    .app-title { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+    .app-title span { color: var(--accent); }
+    .topic-count {
+      font-size: 13px; color: var(--muted);
+      background: var(--card); padding: 4px 10px; border-radius: 20px;
+    }
+
+    .search-wrap { position: relative; }
+    .search-input {
+      width: 100%; padding: 14px 16px;
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: var(--radius); color: var(--text); font-size: 16px;
+      outline: none; transition: border-color 0.15s;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--muted); }
+
+    .search-results {
+      position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+      background: var(--card2); border: 1.5px solid var(--border);
+      border-radius: var(--radius); max-height: 260px; overflow-y: auto;
+      z-index: 10; display: none;
+    }
+    .search-results.open { display: block; }
+    .result-item {
+      padding: 12px 16px; font-size: 15px; cursor: pointer;
+      border-bottom: 1px solid var(--border); transition: background 0.1s;
+    }
+    .result-item:last-child { border-bottom: none; }
+    .result-item:hover, .result-item:active { background: var(--card); }
+    .result-item mark { background: none; color: var(--accent); font-weight: 600; }
+
+    .divider {
+      display: flex; align-items: center; gap: 12px;
+      color: var(--muted); font-size: 13px;
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      width: 100%; padding: 16px; border: none; border-radius: var(--radius);
+      font-size: 16px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      text-align: center; text-decoration: none; display: block;
+    }
+    .btn:active { opacity: 0.8; transform: scale(0.98); }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+    .btn-secondary { background: var(--card); color: var(--text); border: 1.5px solid var(--border); }
+    .btn-outline { background: transparent; color: var(--accent); border: 1.5px solid var(--accent); }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* ── Questions screen ── */
+    #screen-questions { gap: 16px; }
+
+    .topic-badge {
+      background: var(--card); border-left: 4px solid var(--accent);
+      padding: 12px 16px; border-radius: 0 var(--radius) var(--radius) 0;
+      font-size: 17px; font-weight: 700; line-height: 1.3;
+    }
+
+    .section-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+      text-transform: uppercase; color: var(--muted);
+    }
+
+    .generating-wrap {
+      display: flex; align-items: center; gap: 12px;
+      color: var(--muted); font-size: 14px; padding: 16px;
+    }
+    .generating-wrap .spinner { width: 22px; height: 22px; border-width: 2px; }
+
+    /* Q&A cards */
+    .qa-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .qa-card {
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+    }
+    .qa-question {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 16px; cursor: default;
+    }
+    .q-num {
+      min-width: 28px; height: 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .q-text { font-size: 15px; line-height: 1.5; padding-top: 3px; }
+
+    .reveal-answer-btn {
+      width: 100%; padding: 10px 16px;
+      background: transparent; border: none; border-top: 1px solid var(--border);
+      color: var(--accent); font-size: 13px; font-weight: 600;
+      cursor: pointer; text-align: left; display: flex;
+      align-items: center; gap: 6px; transition: background 0.1s;
+    }
+    .reveal-answer-btn:hover { background: rgba(79,158,255,0.06); }
+    .reveal-answer-btn .arrow { transition: transform 0.2s; }
+    .reveal-answer-btn.open .arrow { transform: rotate(90deg); }
+
+    .answer-box {
+      padding: 0 16px; max-height: 0; overflow: hidden;
+      transition: max-height 0.3s ease, padding 0.3s ease;
+      border-top: 0px solid var(--border);
+    }
+    .answer-box.open {
+      max-height: 300px; padding: 14px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .answer-text {
+      font-size: 14px; line-height: 1.65; color: #c8d0e0;
+    }
+    .answer-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--success); margin-bottom: 6px;
+    }
+
+    .spacer { flex: 1; min-height: 16px; }
+
+    .btn-row { display: flex; flex-direction: column; gap: 10px; }
+
+    /* ── Summary screen ── */
+    #screen-summary { gap: 16px; }
+
+    .pdf-viewer-wrap {
+      flex: 1; min-height: 300px;
+      border-radius: var(--radius); overflow: hidden;
+      border: 1.5px solid var(--border);
+      background: #fff;
+      position: relative;
+    }
+    .pdf-viewer-wrap iframe {
+      width: 100%; height: 100%;
+      min-height: 480px; border: none; display: block;
+    }
+    .pdf-loading-overlay {
+      position: absolute; inset: 0;
+      background: var(--card);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; color: var(--muted); font-size: 14px;
+    }
+    .pdf-open-link {
+      display: block; text-align: center;
+      color: var(--accent); font-size: 14px;
+      padding: 10px; text-decoration: none;
+    }
+    .pdf-open-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="screen-loading" class="screen active">
+  <div class="spinner"></div>
+  <p class="loading-label" id="loading-text">Connecting to Dropbox…</p>
+</div>
+
+<!-- Error -->
+<div id="screen-error" class="screen">
+  <div class="error-icon">⚠️</div>
+  <h2>Something went wrong</h2>
+  <p id="error-message"></p>
+  <button class="btn btn-secondary" onclick="location.reload()" style="margin-top:8px">Retry</button>
+</div>
+
+<!-- Home -->
+<div id="screen-home" class="screen">
+  <div class="app-header">
+    <h1 class="app-title">OA <span>Teaching</span></h1>
+    <span class="topic-count" id="topic-count">— topics</span>
+  </div>
+
+  <div class="search-wrap">
+    <input class="search-input" id="search-input" type="search"
+      placeholder="Search topics…" autocomplete="off" autocorrect="off" spellcheck="false">
+    <div class="search-results" id="search-results"></div>
+  </div>
+
+  <div class="divider">or</div>
+
+  <button class="btn btn-primary" id="random-btn">🎲 Random Topic</button>
+</div>
+
+<!-- Questions -->
+<div id="screen-questions" class="screen">
+  <div class="topic-badge" id="q-topic-name"></div>
+
+  <p class="section-label">Teaching Questions</p>
+
+  <div class="generating-wrap" id="generating-wrap">
+    <div class="spinner"></div>
+    Generating questions…
+  </div>
+
+  <div class="qa-list" id="qa-list" style="display:none"></div>
+
+  <div class="spacer"></div>
+
+  <div class="btn-row" id="q-actions" style="display:none">
+    <button class="btn btn-primary" id="reveal-btn">View Full OA Summary →</button>
+    <button class="btn btn-secondary" id="back-btn">← Back</button>
+  </div>
+  <button class="btn btn-secondary" id="back-btn-early" style="margin-top:auto">← Back</button>
+</div>
+
+<!-- Summary -->
+<div id="screen-summary" class="screen">
+  <div class="topic-badge" id="s-topic-name"></div>
+
+  <div class="pdf-viewer-wrap" id="pdf-wrap">
+    <div class="pdf-loading-overlay" id="pdf-overlay">
+      <div class="spinner"></div>
+      <span>Loading summary…</span>
+    </div>
+    <iframe id="pdf-frame" title="OA Summary" style="display:none"></iframe>
+  </div>
+
+  <a class="pdf-open-link" id="pdf-newtab-link" href="#" target="_blank" rel="noopener"
+     style="display:none">↗ Open in new tab</a>
+
+  <button class="btn btn-secondary" id="new-topic-btn">← New Topic</button>
+</div>
+
+<script>
+// ═══════════════════════════════
+//  CONFIG
+// ═══════════════════════════════
+const DBX_APP_KEY       = 'i6mxz0mry0dps7v';
+const DBX_APP_SECRET    = 'j72z563d8a4sh5k';
+const DBX_REFRESH_TOKEN = '18uhYFHd3-4AAAAAAAAAAZPqiu2YCgBuc2yfnHh_e0XRgYC1tYUUvZrbgCOMiMGd';
+const ANTHROPIC_KEY     = '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';
+const ANTHROPIC_MODEL   = 'claude-haiku-4-5-20251001';
+const CACHE_KEY         = 'oa_file_list_v2';
+const CACHE_QA_KEY      = 'oa_questions_v1';
+const CACHE_TTL_MS      = 24 * 60 * 60 * 1000;
+const QUESTIONS_PATH    = '/questions.json';   // in Dropbox app folder
+
+// ═══════════════════════════════
+//  STATE
+// ═══════════════════════════════
+let dbxToken    = null;
+let fileList    = [];
+let currentFile = null;
+let questionDB  = null;   // loaded from questions.json
+
+// ═══════════════════════════════
+//  ROUTING
+// ═══════════════════════════════
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0, 0);
+}
+function showError(msg) {
+  document.getElementById('error-message').textContent = msg;
+  show('screen-error');
+}
+function setLoading(msg) {
+  document.getElementById('loading-text').textContent = msg;
+  show('screen-loading');
+}
+
+// ═══════════════════════════════
+//  DROPBOX
+// ═══════════════════════════════
+async function getDropboxToken() {
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: DBX_REFRESH_TOKEN,
+    client_id: DBX_APP_KEY,
+    client_secret: DBX_APP_SECRET,
+  });
+  const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', body });
+  if (!r.ok) throw new Error(`Dropbox auth failed: ${r.status}`);
+  return (await r.json()).access_token;
+}
+
+async function listAllFiles(token) {
+  const files = [];
+  let cursor = null, hasMore = true;
+  while (hasMore) {
+    let r;
+    if (!cursor) {
+      r = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: '', recursive: true }),
+      });
+    } else {
+      r = await fetch('https://api.dropboxapi.com/2/files/list_folder/continue', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cursor }),
+      });
+    }
+    if (!r.ok) throw new Error(`File listing failed: ${r.status}`);
+    const data = await r.json();
+    for (const e of data.entries) {
+      if (e['.tag'] === 'file' && e.name.toLowerCase().endsWith('.pdf')) {
+        // Strip ".pdf" and clean up OA-style suffixes for display
+        let name = e.name.replace(/\.pdf$/i, '');
+        files.push({ name, path_lower: e.path_lower });
+      }
+    }
+    hasMore = data.has_more;
+    cursor  = data.cursor;
+  }
+  return files;
+}
+
+async function getTempLink(token, pathLower) {
+  const r = await fetch('https://api.dropboxapi.com/2/files/get_temporary_link', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: pathLower }),
+  });
+  if (!r.ok) throw new Error(`Could not get PDF link: ${r.status}`);
+  return (await r.json()).link;
+}
+
+// ═══════════════════════════════
+//  LOAD questions.json from Dropbox
+// ═══════════════════════════════
+async function loadQuestionDB(token) {
+  // Check cache first
+  try {
+    const cached = JSON.parse(localStorage.getItem(CACHE_QA_KEY) || 'null');
+    if (cached && cached.ts && (Date.now() - cached.ts < CACHE_TTL_MS)) {
+      return cached.data;
+    }
+  } catch (_) {}
+
+  // Download from Dropbox
+  const r = await fetch('https://content.dropboxapi.com/2/files/download', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Dropbox-API-Arg': JSON.stringify({ path: QUESTIONS_PATH }),
+    },
+  });
+  if (!r.ok) return null;  // file not there yet — fall back gracefully
+  const data = await r.json();
+
+  // Cache it
+  try {
+    localStorage.setItem(CACHE_QA_KEY, JSON.stringify({ ts: Date.now(), data }));
+  } catch (_) {}
+  return data;
+}
+
+// ═══════════════════════════════
+//  GET Q&A for a topic
+// ═══════════════════════════════
+async function generateQA(topicName) {
+  // 1. Try pre-built question DB
+  if (questionDB) {
+    // Exact match first
+    if (questionDB[topicName]) return questionDB[topicName].slice(0, 5);
+    // Fuzzy match (trim suffixes like " - OpenAnesthesia")
+    const clean = topicName.replace(/\s*[-–]\s*OpenAnesthesia.*/i, '').trim();
+    const key = Object.keys(questionDB).find(k =>
+      k.toLowerCase().includes(clean.toLowerCase()) ||
+      clean.toLowerCase().includes(k.toLowerCase())
+    );
+    if (key) return questionDB[key].slice(0, 5);
+  }
+
+  // 2. Fall back: real-time Claude call
+  const prompt =
+`You are an anesthesiology teaching tool. Generate 5 board-quality Q&A pairs about the OpenAnesthesia topic: "${topicName}"
+
+The topic may be a drug, disease, syndrome, monitoring technique, or procedural concept — adapt accordingly.
+- Each answer: 2–5 sentences, factual, include doses/numbers where relevant
+- Return ONLY a JSON array: [{"q":"...","a":"..."}]`;
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 900,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!r.ok) throw new Error(`Claude API ${r.status}`);
+    const data = await r.json();
+    const text = data.content[0].text.trim();
+    const match = text.match(/\[[\s\S]*\]/);
+    if (!match) throw new Error('No JSON');
+    const qa = JSON.parse(match[0]);
+    if (Array.isArray(qa) && qa.length >= 2) return qa.slice(0, 5);
+    throw new Error('Too few pairs');
+  } catch (err) {
+    console.warn('Claude fallback:', err.message);
+    return genericQA(topicName);
+  }
+}
+
+function genericQA(topic) {
+  return [
+    { q: `What is the clinical relevance of "${topic}" to an anesthesiologist?`, a: null },
+    { q: `What are the key pharmacological or physiological considerations for "${topic}"?`, a: null },
+    { q: `What complications or adverse events are associated with "${topic}" and how are they managed?`, a: null },
+  ];
+}
+
+// ═══════════════════════════════
+//  RENDER Q&A CARDS
+// ═══════════════════════════════
+function renderQA(qaList) {
+  const container = document.getElementById('qa-list');
+  container.innerHTML = '';
+  qaList.forEach((item, i) => {
+    const card = document.createElement('div');
+    card.className = 'qa-card';
+
+    const qRow = document.createElement('div');
+    qRow.className = 'qa-question';
+    qRow.innerHTML = `<div class="q-num">${i + 1}</div><div class="q-text">${item.q}</div>`;
+
+    const revealBtn = document.createElement('button');
+    revealBtn.className = 'reveal-answer-btn';
+
+    const answerBox = document.createElement('div');
+    answerBox.className = 'answer-box';
+
+    if (item.a) {
+      revealBtn.innerHTML = `<span class="arrow">▶</span> Show Answer`;
+      answerBox.innerHTML = `<div class="answer-label">Answer</div><div class="answer-text">${item.a}</div>`;
+      revealBtn.addEventListener('click', () => {
+        const open = answerBox.classList.toggle('open');
+        revealBtn.classList.toggle('open', open);
+        revealBtn.innerHTML = open
+          ? `<span class="arrow" style="transform:rotate(90deg)">▶</span> Hide Answer`
+          : `<span class="arrow">▶</span> Show Answer`;
+      });
+    } else {
+      revealBtn.innerHTML = `<span>📖</span> See OA Summary below`;
+      revealBtn.style.color = 'var(--muted)';
+      revealBtn.style.cursor = 'default';
+      answerBox.innerHTML = '';
+    }
+
+    card.appendChild(qRow);
+    card.appendChild(revealBtn);
+    card.appendChild(answerBox);
+    container.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════
+//  PDF DISPLAY (blob → iframe)
+// ═══════════════════════════════
+async function showPDF(link) {
+  const overlay  = document.getElementById('pdf-overlay');
+  const frame    = document.getElementById('pdf-frame');
+  const newTab   = document.getElementById('pdf-newtab-link');
+
+  overlay.style.display = 'flex';
+  frame.style.display   = 'none';
+  newTab.style.display  = 'none';
+  newTab.href = link; // fallback always available
+
+  try {
+    const resp = await fetch(link);
+    if (!resp.ok) throw new Error('fetch failed');
+    const blob    = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    frame.src = blobUrl;
+    frame.onload = () => {
+      overlay.style.display = 'none';
+      frame.style.display   = 'block';
+      newTab.href = blobUrl;
+    };
+    newTab.style.display = 'block';
+  } catch (err) {
+    // CORS or fetch failed — show "open in new tab" instead
+    overlay.innerHTML = `
+      <div style="text-align:center;padding:24px;color:var(--muted)">
+        <div style="font-size:36px;margin-bottom:12px">📄</div>
+        <p style="margin-bottom:16px;font-size:14px">Tap below to open the PDF</p>
+        <a href="${link}" target="_blank" rel="noopener"
+           class="btn btn-outline" style="display:inline-block;padding:12px 24px;width:auto">
+          Open Summary PDF
+        </a>
+      </div>`;
+  }
+}
+
+// ═══════════════════════════════
+//  QUIZ FLOW
+// ═══════════════════════════════
+async function startQuiz(file) {
+  currentFile = file;
+  document.getElementById('q-topic-name').textContent = file.name;
+  document.getElementById('s-topic-name').textContent = file.name;
+  document.getElementById('generating-wrap').style.display = 'flex';
+  document.getElementById('qa-list').style.display         = 'none';
+  document.getElementById('q-actions').style.display       = 'none';
+  document.getElementById('back-btn-early').style.display  = 'block';
+  show('screen-questions');
+
+  const qa = await generateQA(file.name);
+
+  document.getElementById('generating-wrap').style.display = 'none';
+  renderQA(qa);
+  document.getElementById('qa-list').style.display         = 'flex';
+  document.getElementById('q-actions').style.display       = 'flex';
+  document.getElementById('back-btn-early').style.display  = 'none';
+}
+
+// ═══════════════════════════════
+//  SEARCH
+// ═══════════════════════════════
+const searchInput   = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+
+function highlight(text, query) {
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return text;
+  return text.slice(0, idx) + `<mark>${text.slice(idx, idx + query.length)}</mark>` + text.slice(idx + query.length);
+}
+
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.trim();
+  if (q.length < 2) { searchResults.innerHTML = ''; searchResults.classList.remove('open'); return; }
+  const hits = fileList.filter(f => f.name.toLowerCase().includes(q.toLowerCase())).slice(0, 20);
+  if (!hits.length) { searchResults.innerHTML = ''; searchResults.classList.remove('open'); return; }
+  searchResults.innerHTML = hits.map(f =>
+    `<div class="result-item" data-path="${f.path_lower}" data-name="${encodeURIComponent(f.name)}">${highlight(f.name, q)}</div>`
+  ).join('');
+  searchResults.classList.add('open');
+});
+
+searchResults.addEventListener('click', e => {
+  const item = e.target.closest('.result-item');
+  if (!item) return;
+  searchResults.classList.remove('open');
+  searchInput.value = '';
+  startQuiz({ name: decodeURIComponent(item.dataset.name), path_lower: item.dataset.path });
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-wrap')) searchResults.classList.remove('open');
+});
+
+// ═══════════════════════════════
+//  BUTTON HANDLERS
+// ═══════════════════════════════
+document.getElementById('random-btn').addEventListener('click', () => {
+  if (!fileList.length) return;
+  startQuiz(fileList[Math.floor(Math.random() * fileList.length)]);
+});
+
+document.getElementById('back-btn').addEventListener('click', () => show('screen-home'));
+document.getElementById('back-btn-early').addEventListener('click', () => show('screen-home'));
+document.getElementById('new-topic-btn').addEventListener('click', () => show('screen-home'));
+
+document.getElementById('reveal-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('reveal-btn');
+  btn.disabled = true;
+  btn.textContent = 'Loading PDF…';
+  show('screen-summary');
+  try {
+    const link = await getTempLink(dbxToken, currentFile.path_lower);
+    await showPDF(link);
+  } catch (err) {
+    document.getElementById('pdf-overlay').innerHTML =
+      `<div style="color:var(--danger);padding:20px;text-align:center;font-size:14px">Could not load PDF: ${err.message}</div>`;
+  }
+  btn.disabled = false;
+  btn.textContent = 'View Full OA Summary →';
+});
+
+// ═══════════════════════════════
+//  CACHE
+// ═══════════════════════════════
+function saveCache(files) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), files })); } catch (_) {}
+}
+function loadCache() {
+  try {
+    const { ts, files } = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    return (Date.now() - ts < CACHE_TTL_MS) ? files : null;
+  } catch (_) { return null; }
+}
+
+// ═══════════════════════════════
+//  INIT
+// ═══════════════════════════════
+(async () => {
+  try {
+    setLoading('Connecting to Dropbox…');
+    dbxToken = await getDropboxToken();
+
+    const cached = loadCache();
+    if (cached && cached.length > 0) {
+      fileList = cached;
+    } else {
+      setLoading('Loading topics… (first load may take a moment)');
+      fileList = await listAllFiles(dbxToken);
+      saveCache(fileList);
+    }
+
+    if (!fileList.length) {
+      showError('No PDF files found in your Dropbox app folder (/Apps/OA Summaries Quiz/). Make sure your OA PDFs are in there.');
+      return;
+    }
+
+    fileList.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Try to load pre-built question DB (non-blocking)
+    setLoading('Loading question bank…');
+    questionDB = await loadQuestionDB(dbxToken);
+    if (questionDB) {
+      const n = Object.keys(questionDB).length;
+      console.log(`Loaded question DB: ${n} topics`);
+    } else {
+      console.log('No questions.json yet — will generate in real-time');
+    }
+
+    document.getElementById('topic-count').textContent = `${fileList.length} topics`;
+    show('screen-home');
+  } catch (err) {
+    showError('Could not connect to Dropbox: ' + err.message);
+  }
+})();
+</script>
+</body>
+</html>
