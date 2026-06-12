@@ -220,6 +220,26 @@
       display: flex; gap: 10px;
     }
     .pdf-btn-row .btn { flex: 1; padding: 13px 10px; font-size: 15px; }
+
+    /* ── Categories ── */
+    .cat-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .cat-chip {
+      padding: 8px 14px; border-radius: 20px;
+      background: var(--card); border: 1.5px solid var(--border);
+      font-size: 14px; cursor: pointer; transition: all 0.15s;
+      color: var(--text); white-space: nowrap;
+    }
+    .cat-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .cat-topic-list {
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: var(--radius); max-height: 280px; overflow-y: auto;
+    }
+    .cat-topic-item {
+      padding: 12px 16px; font-size: 15px; cursor: pointer;
+      border-bottom: 1px solid var(--border); transition: background 0.1s;
+    }
+    .cat-topic-item:last-child { border-bottom: none; }
+    .cat-topic-item:hover, .cat-topic-item:active { background: var(--card2); }
   </style>
 </head>
 <body>
@@ -254,6 +274,12 @@
   <div class="divider">or</div>
 
   <button class="btn btn-primary" id="random-btn">🎲 Random Topic</button>
+
+  <div class="divider">or browse</div>
+
+  <p class="section-label">Categories</p>
+  <div class="cat-grid" id="cat-grid"></div>
+  <div class="cat-topic-list" id="cat-topic-list" style="display:none"></div>
 </div>
 
 <!-- Questions -->
@@ -294,9 +320,101 @@
     <button class="btn btn-secondary" id="back-to-questions-btn">← Questions</button>
     <button class="btn btn-secondary" id="new-topic-btn">⌂ New Topic</button>
   </div>
+  <a id="pdf-newtab-link" href="#" target="_blank" rel="noopener"
+     style="display:none;text-align:center;color:var(--muted);font-size:13px;padding:4px 0;text-decoration:none">
+    ↗ Open PDF in new tab
+  </a>
 </div>
 
 <script>
+// ═══════════════════════════════
+//  NAME CLEANING
+// ═══════════════════════════════
+function cleanName(raw) {
+  return raw
+    .replace(/\s*[-–]\s*OpenAnesthesia[^]*$/i, '') // drop "- OpenAnesthesia" suffix
+    .replace(/_\s+/g, ': ')   // "Topic_ Subtitle" → "Topic: Subtitle"
+    .replace(/_/g, ' ')        // remaining underscores → spaces
+    .trim();
+}
+
+// ═══════════════════════════════
+//  SYNONYM MAP
+// ═══════════════════════════════
+const SYNONYMS = {
+  'muscle relaxant':  ['succinylcholine','rocuronium','vecuronium','cisatracurium','atracurium','pancuronium','neostigmine','sugammadex','neuromuscular'],
+  'nmb':              ['succinylcholine','rocuronium','vecuronium','cisatracurium','atracurium','pancuronium','neuromuscular'],
+  'reversal':         ['neostigmine','sugammadex','pyridostigmine','edrophonium'],
+  'paralytic':        ['succinylcholine','rocuronium','vecuronium','cisatracurium','neuromuscular'],
+  'narcotic':         ['opioid','fentanyl','morphine','hydromorphone','remifentanil','sufentanil','oxycodone'],
+  'opioid':           ['fentanyl','morphine','hydromorphone','remifentanil','sufentanil','oxycodone','meperidine'],
+  'painkiller':       ['opioid','nsaid','acetaminophen','analgesic','fentanyl','morphine'],
+  'sedative':         ['propofol','midazolam','dexmedetomidine','ketamine','etomidate','benzodiazepine','lorazepam'],
+  'benzo':            ['midazolam','lorazepam','diazepam','benzodiazepine'],
+  'local anesthetic': ['bupivacaine','lidocaine','ropivacaine','mepivacaine','chloroprocaine','tetracaine'],
+  'blood thinner':    ['heparin','warfarin','anticoagulant','rivaroxaban','apixaban','dabigatran','enoxaparin'],
+  'anticoagulant':    ['heparin','warfarin','rivaroxaban','apixaban','dabigatran','enoxaparin','fondaparinux'],
+  'vasopressor':      ['epinephrine','norepinephrine','vasopressin','phenylephrine','dopamine','dobutamine'],
+  'pressor':          ['epinephrine','norepinephrine','vasopressin','phenylephrine','dopamine'],
+  'volatile':         ['sevoflurane','isoflurane','desflurane'],
+  'inhalational':     ['sevoflurane','isoflurane','desflurane','nitrous'],
+  'gas':              ['sevoflurane','isoflurane','desflurane','nitrous oxide'],
+  'induction agent':  ['propofol','etomidate','ketamine','thiopental'],
+  'nerve block':      ['brachial','femoral','sciatic','interscalene','TAP','PECS','adductor','popliteal','saphenous'],
+  'regional':         ['brachial','femoral','sciatic','interscalene','TAP','PECS','adductor','plexus','block'],
+  'heart rhythm':     ['arrhythmia','atrial fibrillation','SVT','ventricular tachycardia','bradycardia','amiodarone'],
+  'heart attack':     ['myocardial infarction','STEMI','ACS','ischemia','coronary'],
+  'blood pressure':   ['hypertension','hypotension','antihypertensive'],
+  'fluid':            ['crystalloid','colloid','saline','albumin','transfusion'],
+  'allergy':          ['anaphylaxis','hypersensitivity','latex'],
+  'clotting':         ['coagulation','coagulopathy','thrombosis','DIC','platelet'],
+  'nausea':           ['PONV','antiemetic','vomiting','ondansetron','metoclopramide'],
+  'kidney':           ['renal','nephro','uremi'],
+  'liver':            ['hepatic','hepato','cirrhosis','hepatitis'],
+  'diabetes':         ['insulin','glycemic','hyperglycemia','hypoglycemia'],
+  'thyroid':          ['hypothyroid','hyperthyroid','thyrotoxicosis'],
+  'breathing':        ['ventilation','respiratory','pulmonary','airway'],
+  'lung':             ['pulmonary','respiratory','bronch','pneumo'],
+  'spinal':           ['intrathecal','subarachnoid','neuraxial','epidural'],
+  'epidural':         ['neuraxial','intrathecal','labor analgesia','obstetric'],
+  'airway':           ['intubat','laryngoscop','LMA','RSI','cricothyroid','tracheostomy'],
+  'pediatric':        ['neonatal','infant','congenital','child'],
+  'ob ':              ['obstetric','pregnan','labor','delivery','cesarean','maternal'],
+  'obstetrics':       ['pregnan','labor','delivery','cesarean','eclampsia','epidural'],
+};
+
+function expandQuery(q) {
+  const lower = q.toLowerCase().trim();
+  const terms = [lower];
+  for (const [syn, expansions] of Object.entries(SYNONYMS)) {
+    if (lower.includes(syn) || syn.includes(lower)) {
+      terms.push(...expansions.map(e => e.toLowerCase()));
+    }
+  }
+  return [...new Set(terms)];
+}
+
+// ═══════════════════════════════
+//  CATEGORIES
+// ═══════════════════════════════
+const CATEGORIES = [
+  { name: 'Cardiovascular', emoji: '🫀', keys: ['cardiac','cardio','heart','coronary','aortic','mitral','tricuspid','pulmonic','valve','arrhythmia','hypertension','atrial','ventricular','pericardial','endocarditis','cardiomyopathy','pacemaker','angina','infarct','aorta','vascular'] },
+  { name: 'Pulmonary', emoji: '🫁', keys: ['pulmonary','lung','respiratory','asthma','copd','bronch','pneumo','hypoxia','hypercapnia','ards','emphysema','pleural','pneumothorax','obstructive','restrictive'] },
+  { name: 'Airway', emoji: '😮‍💨', keys: ['airway','intubat','laryngoscop','tracheostomy','laryngospasm','lma','supraglott','difficult airway','rsi','videolaryngoscopy','cricothyroid','mask ventilation','obstructive sleep apnea'] },
+  { name: 'Regional', emoji: '💉', keys: ['block','regional','plexus','brachial','femoral','sciatic','interscalene','tap block','pecs','adductor canal','popliteal','saphenous','erector spinae','paravertebral','peripheral nerve'] },
+  { name: 'Neuraxial', emoji: '🩻', keys: ['spinal anesthesia','epidural','neuraxial','intrathecal','subarachnoid','combined spinal','dural puncture','pdph','labor analgesia'] },
+  { name: 'Neurology', emoji: '🧠', keys: ['neuro','brain','cerebral','intracranial','icp','epilepsy','seizure','stroke','aneurysm','parkinson','dementia','tbi','craniotomy','hydrocephalus','spinal cord','ischemia'] },
+  { name: 'OB / Obstetrics', emoji: '🤰', keys: ['obstetric','pregnan','fetal','maternal','labor','delivery','cesarean','eclampsia','preeclampsia','uterine','placenta','postpartum','gestational'] },
+  { name: 'Pediatrics', emoji: '👶', keys: ['pediatric','neonatal','infant','congenital','premature','child'] },
+  { name: 'ICU', emoji: '🏥', keys: ['icu','critical care','sepsis','septic shock','vasopressor','resuscitation','organ failure','ecmo','prone positioning','mechanical ventilation'] },
+  { name: 'Pharmacology', emoji: '💊', keys: ['propofol','ketamine','fentanyl','morphine','succinylcholine','rocuronium','vecuronium','cisatracurium','neostigmine','sugammadex','midazolam','dexmedetomidine','etomidate','sevoflurane','isoflurane','desflurane','nitrous','bupivacaine','lidocaine','ropivacaine','epinephrine','norepinephrine','vasopressin','phenylephrine','atropine','glycopyrrolate','naloxone','flumazenil','warfarin','heparin','acetaminophen','dexamethasone','ondansetron','pharmacology','pharmacokinetic','pharmacodynamic','drug'] },
+  { name: 'Pain', emoji: '⚡', keys: ['pain management','pain medicine','analgesic','nsaid','acetaminophen','chronic pain','acute pain','multimodal','opioid','pca','cancer pain','neuropathic','postoperative pain'] },
+  { name: 'GI / Hepatic', emoji: '🟤', keys: ['hepatic','liver','gastric','bowel','intestinal','cirrhosis','gerd','esophageal','aspiration','hepatitis','portal hypertension','gi bleeding','abdominal'] },
+  { name: 'Renal / Metabolic', emoji: '🔬', keys: ['renal','kidney','electrolyte','sodium','potassium','acid-base','metabolic','diabetes','thyroid','endocrine','adrenal','glucose','hyperkalemia','hyponatremia','uremia'] },
+  { name: 'Hematology', emoji: '🩸', keys: ['transfusion','blood product','coagulation','anticoagul','thrombosis','dic','platelet','hemoglobin','sickle cell','anemia','hemophilia','coagulopathy','bleeding'] },
+  { name: 'Monitoring', emoji: '📊', keys: ['monitoring','bispectral','bis','nirs','tee','echocardiograph','hemodynamic','arterial line','cvp','pac','capnography','oximetry','temperature','neuromonitoring','intraoperative monitoring'] },
+];
+
 // ═══════════════════════════════
 //  CONFIG
 // ═══════════════════════════════
@@ -374,7 +492,7 @@ async function listAllFiles(token) {
       if (e['.tag'] === 'file' && e.name.toLowerCase().endsWith('.pdf')) {
         // Strip ".pdf" and clean up OA-style suffixes for display
         let name = e.name.replace(/\.pdf$/i, '');
-        files.push({ name, path_lower: e.path_lower });
+        files.push({ name, displayName: cleanName(name), path_lower: e.path_lower });
       }
     }
     hasMore = data.has_more;
@@ -546,21 +664,25 @@ function renderQA(qaList) {
 async function showPDF(link) {
   const overlay  = document.getElementById('pdf-overlay');
   const frame    = document.getElementById('pdf-frame');
+  const newTab   = document.getElementById('pdf-newtab-link');
 
   overlay.style.display = 'flex';
   frame.style.display   = 'none';
+  newTab.style.display  = 'none';
 
   try {
     const resp = await fetch(link);
     if (!resp.ok) throw new Error('fetch failed');
     const blob    = await resp.blob();
     const blobUrl = URL.createObjectURL(blob);
-    // #navpanes=0 suppresses the thumbnail sidebar in Chrome/Safari PDF viewer
-    frame.src = blobUrl + '#navpanes=0&pagemode=none';
-    frame.onload = () => {
+    frame.src = blobUrl;
+    newTab.href = blobUrl;
+    newTab.style.display = 'block';
+    // onload fires before Chrome's PDF viewer renders — use short delay instead
+    setTimeout(() => {
       overlay.style.display = 'none';
       frame.style.display   = 'block';
-    };
+    }, 1200);
   } catch (err) {
     // CORS or fetch failed — show "open in new tab" instead
     overlay.innerHTML = `
@@ -580,8 +702,9 @@ async function showPDF(link) {
 // ═══════════════════════════════
 async function startQuiz(file) {
   currentFile = file;
-  document.getElementById('q-topic-name').textContent = file.name;
-  document.getElementById('s-topic-name').textContent = file.name;
+  const label = file.displayName || cleanName(file.name);
+  document.getElementById('q-topic-name').textContent = label;
+  document.getElementById('s-topic-name').textContent = label;
   document.getElementById('generating-wrap').style.display = 'flex';
   document.getElementById('qa-list').style.display         = 'none';
   document.getElementById('q-actions').style.display       = 'none';
@@ -612,10 +735,15 @@ function highlight(text, query) {
 searchInput.addEventListener('input', () => {
   const q = searchInput.value.trim();
   if (q.length < 2) { searchResults.innerHTML = ''; searchResults.classList.remove('open'); return; }
-  const hits = fileList.filter(f => f.name.toLowerCase().includes(q.toLowerCase())).slice(0, 20);
+  const terms = expandQuery(q);
+  const hits = fileList.filter(f => {
+    const dn = (f.displayName || f.name).toLowerCase();
+    const rn = f.name.toLowerCase();
+    return terms.some(t => dn.includes(t) || rn.includes(t));
+  }).slice(0, 20);
   if (!hits.length) { searchResults.innerHTML = ''; searchResults.classList.remove('open'); return; }
   searchResults.innerHTML = hits.map(f =>
-    `<div class="result-item" data-path="${f.path_lower}" data-name="${encodeURIComponent(f.name)}">${highlight(f.name, q)}</div>`
+    `<div class="result-item" data-path="${f.path_lower}" data-name="${encodeURIComponent(f.name)}">${highlight(f.displayName || f.name, q)}</div>`
   ).join('');
   searchResults.classList.add('open');
 });
@@ -661,6 +789,57 @@ document.getElementById('reveal-btn').addEventListener('click', async () => {
 });
 
 document.getElementById('back-to-questions-btn').addEventListener('click', () => show('screen-questions'));
+
+// ═══════════════════════════════
+//  CATEGORY GRID
+// ═══════════════════════════════
+function buildCategoryGrid() {
+  const grid = document.getElementById('cat-grid');
+  const list = document.getElementById('cat-topic-list');
+  let activeChip = null;
+
+  CATEGORIES.forEach(cat => {
+    const chip = document.createElement('button');
+    chip.className = 'cat-chip';
+    chip.textContent = `${cat.emoji} ${cat.name}`;
+
+    chip.addEventListener('click', () => {
+      if (activeChip === chip) {
+        chip.classList.remove('active');
+        list.style.display = 'none';
+        activeChip = null;
+        return;
+      }
+      document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      activeChip = chip;
+
+      const matches = fileList.filter(f => {
+        const n = (f.displayName || f.name).toLowerCase();
+        return cat.keys.some(k => n.includes(k.toLowerCase()));
+      }).sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name));
+
+      if (!matches.length) { list.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:14px">No topics found</div>'; }
+      else {
+        list.innerHTML = matches.map(f =>
+          `<div class="cat-topic-item" data-path="${f.path_lower}" data-name="${encodeURIComponent(f.name)}">${f.displayName || f.name}</div>`
+        ).join('');
+        list.querySelectorAll('.cat-topic-item').forEach(item => {
+          item.addEventListener('click', () => {
+            document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
+            list.style.display = 'none';
+            activeChip = null;
+            const name = decodeURIComponent(item.dataset.name);
+            startQuiz({ name, displayName: item.textContent, path_lower: item.dataset.path });
+          });
+        });
+      }
+      list.style.display = 'block';
+    });
+
+    grid.appendChild(chip);
+  });
+}
 
 // ═══════════════════════════════
 //  CACHE
@@ -710,6 +889,7 @@ function loadCache() {
     }
 
     document.getElementById('topic-count').textContent = `${fileList.length} topics`;
+    buildCategoryGrid();
     show('screen-home');
   } catch (err) {
     showError('Could not connect to Dropbox: ' + err.message);
