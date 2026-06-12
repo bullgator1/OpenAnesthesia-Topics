@@ -200,7 +200,7 @@
     /* ── Summary screen ── */
     #screen-summary {
       gap: 12px;
-      max-width: 100%;        /* full width on desktop */
+      max-width: 100%;
       padding: 16px 16px 24px;
     }
 
@@ -355,9 +355,9 @@
 // ═══════════════════════════════
 function cleanName(raw) {
   return raw
-    .replace(/\s*[-–]\s*OpenAnesthesia[^]*$/i, '') // drop "- OpenAnesthesia" suffix
-    .replace(/_\s+/g, ': ')   // "Topic_ Subtitle" → "Topic: Subtitle"
-    .replace(/_/g, ' ')        // remaining underscores → spaces
+    .replace(/\s*[-–]\s*OpenAnesthesia[^]*$/i, '')
+    .replace(/_\s+/g, ': ')
+    .replace(/_/g, ' ')
     .trim();
 }
 
@@ -444,12 +444,12 @@ const CATEGORIES = [
 const DBX_APP_KEY       = 'i6mxz0mry0dps7v';
 const DBX_APP_SECRET    = 'j72z563d8a4sh5k';
 const DBX_REFRESH_TOKEN = '18uhYFHd3-4AAAAAAAAAAZPqiu2YCgBuc2yfnHh_e0XRgYC1tYUUvZrbgCOMiMGd';
-const ANTHROPIC_KEY     = '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';
+const ANTHROPIC_KEY     = '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';
 const ANTHROPIC_MODEL   = 'claude-haiku-4-5-20251001';
 const CACHE_KEY         = 'oa_file_list_v4';
-const CACHE_QA_KEY      = 'oa_questions_v1';
+const CACHE_QA_KEY      = 'oa_questions_v2';   // bumped to bust stale 5-question cache
 const CACHE_TTL_MS      = 24 * 60 * 60 * 1000;
-const QUESTIONS_PATH    = '/questions.json';   // in Dropbox app folder
+const QUESTIONS_PATH    = '/questions.json';
 
 // ═══════════════════════════════
 //  STATE
@@ -514,7 +514,6 @@ async function listAllFiles(token) {
     const data = await r.json();
     for (const e of data.entries) {
       if (e['.tag'] === 'file' && e.name.toLowerCase().endsWith('.pdf')) {
-        // Strip ".pdf" and clean up OA-style suffixes for display
         let name = e.name.replace(/\.pdf$/i, '');
         files.push({ name, displayName: cleanName(name), path_lower: e.path_lower });
       }
@@ -539,7 +538,6 @@ async function getTempLink(token, pathLower) {
 //  LOAD questions.json from Dropbox
 // ═══════════════════════════════
 async function loadQuestionDB(token) {
-  // Check cache first
   try {
     const cached = JSON.parse(localStorage.getItem(CACHE_QA_KEY) || 'null');
     if (cached && cached.ts && (Date.now() - cached.ts < CACHE_TTL_MS)) {
@@ -547,7 +545,6 @@ async function loadQuestionDB(token) {
     }
   } catch (_) {}
 
-  // Download from Dropbox
   const r = await fetch('https://content.dropboxapi.com/2/files/download', {
     method: 'POST',
     headers: {
@@ -555,10 +552,9 @@ async function loadQuestionDB(token) {
       'Dropbox-API-Arg': JSON.stringify({ path: QUESTIONS_PATH }),
     },
   });
-  if (!r.ok) return null;  // file not there yet — fall back gracefully
+  if (!r.ok) return null;
   const data = await r.json();
 
-  // Cache it
   try {
     localStorage.setItem(CACHE_QA_KEY, JSON.stringify({ ts: Date.now(), data }));
   } catch (_) {}
@@ -569,17 +565,15 @@ async function loadQuestionDB(token) {
 //  GET Q&A for a topic
 // ═══════════════════════════════
 async function generateQA(topicName) {
-  // 1. Try pre-built question DB
+  // 1. Try pre-built question DB — return ALL questions (no slice cap)
   if (questionDB) {
-    // Exact match first
-    if (questionDB[topicName]) return questionDB[topicName].slice(0, 5);
-    // Fuzzy match (trim suffixes like " - OpenAnesthesia")
+    if (questionDB[topicName]) return questionDB[topicName];
     const clean = topicName.replace(/\s*[-–]\s*OpenAnesthesia.*/i, '').trim();
     const key = Object.keys(questionDB).find(k =>
       k.toLowerCase().includes(clean.toLowerCase()) ||
       clean.toLowerCase().includes(k.toLowerCase())
     );
-    if (key) return questionDB[key].slice(0, 5);
+    if (key) return questionDB[key];
   }
 
   // 2. Fall back: real-time Claude call
@@ -610,7 +604,7 @@ The topic may be a drug, disease, syndrome, monitoring technique, or procedural 
     const match = text.match(/\[[\s\S]*\]/);
     if (!match) throw new Error('No JSON');
     const qa = JSON.parse(match[0]);
-    if (Array.isArray(qa) && qa.length >= 2) return qa.slice(0, 5);
+    if (Array.isArray(qa) && qa.length >= 2) return qa;
     throw new Error('Too few pairs');
   } catch (err) {
     console.warn('Claude fallback:', err.message);
@@ -682,7 +676,6 @@ function renderQA(qaList) {
   const container = document.getElementById('qa-list');
   container.innerHTML = '';
 
-  // Shuffle then show first 3; "see all" reveals the rest
   const shuffled = [...qaList].sort(() => Math.random() - 0.5);
   const initial  = shuffled.slice(0, 3);
   const rest     = shuffled.slice(3);
@@ -716,7 +709,6 @@ async function showPDF(link) {
   newTab.style.display    = 'none';
 
   try {
-    // Configure PDF.js worker
     if (window.pdfjsLib) {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc =
         'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -726,7 +718,6 @@ async function showPDF(link) {
     if (!resp.ok) throw new Error('fetch failed');
     const arrayBuf = await resp.arrayBuffer();
 
-    // Also set up new-tab link from blob
     const blob    = new Blob([arrayBuf], { type: 'application/pdf' });
     const blobUrl = URL.createObjectURL(blob);
     newTab.href = blobUrl;
@@ -738,10 +729,9 @@ async function showPDF(link) {
     overlay.style.display   = 'none';
     container.style.display = 'block';
 
-    // Render all pages sequentially
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page     = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2.0 }); // 2x for retina sharpness
+      const viewport = page.getViewport({ scale: 2.0 });
       const canvas   = document.createElement('canvas');
       canvas.width   = viewport.width;
       canvas.height  = viewport.height;
@@ -749,7 +739,6 @@ async function showPDF(link) {
       await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
     }
   } catch (err) {
-    // Fallback: show "open in new tab" instead
     overlay.innerHTML = `
       <div style="text-align:center;padding:24px;color:var(--muted)">
         <div style="font-size:36px;margin-bottom:12px">📄</div>
@@ -984,7 +973,6 @@ function loadCache() {
 
     fileList.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Try to load pre-built question DB (non-blocking)
     setLoading('Loading question bank…');
     questionDB = await loadQuestionDB(dbxToken);
     if (questionDB) {
