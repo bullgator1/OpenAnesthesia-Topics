@@ -504,6 +504,18 @@ function renderQA(qaList) {
       revealBtn.innerHTML = `<span class="arrow">▶</span> Show Answer`;
       answerBox.innerHTML = `<div class="answer-label">Answer</div><div class="answer-text">${item.a}</div>`;
       revealBtn.addEventListener('click', () => {
+        const isOpen = answerBox.classList.contains('open');
+        // Close all other open answers first
+        if (!isOpen) {
+          document.querySelectorAll('.answer-box.open').forEach(box => {
+            box.classList.remove('open');
+            const prev = box.previousElementSibling;
+            if (prev && prev.classList.contains('reveal-answer-btn')) {
+              prev.classList.remove('open');
+              prev.innerHTML = `<span class="arrow">▶</span> Show Answer`;
+            }
+          });
+        }
         const open = answerBox.classList.toggle('open');
         revealBtn.classList.toggle('open', open);
         revealBtn.innerHTML = open
@@ -635,14 +647,12 @@ document.getElementById('new-topic-btn').addEventListener('click', () => show('s
 document.getElementById('reveal-btn').addEventListener('click', async () => {
   const btn = document.getElementById('reveal-btn');
   btn.disabled = true;
-  btn.textContent = 'Loading PDF…';
-  show('screen-summary');
+  btn.textContent = 'Opening PDF…';
   try {
     const link = await getTempLink(dbxToken, currentFile.path_lower);
-    await showPDF(link);
+    window.open(link, '_blank', 'noopener');
   } catch (err) {
-    document.getElementById('pdf-overlay').innerHTML =
-      `<div style="color:var(--danger);padding:20px;text-align:center;font-size:14px">Could not load PDF: ${err.message}</div>`;
+    alert('Could not load PDF: ' + err.message);
   }
   btn.disabled = false;
   btn.textContent = 'View Full OA Summary →';
