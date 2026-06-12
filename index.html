@@ -423,7 +423,7 @@ const DBX_APP_SECRET    = 'j72z563d8a4sh5k';
 const DBX_REFRESH_TOKEN = '18uhYFHd3-4AAAAAAAAAAZPqiu2YCgBuc2yfnHh_e0XRgYC1tYUUvZrbgCOMiMGd';
 const ANTHROPIC_KEY     = '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';
 const ANTHROPIC_MODEL   = 'claude-haiku-4-5-20251001';
-const CACHE_KEY         = 'oa_file_list_v2';
+const CACHE_KEY         = 'oa_file_list_v4';
 const CACHE_QA_KEY      = 'oa_questions_v1';
 const CACHE_TTL_MS      = 24 * 60 * 60 * 1000;
 const QUESTIONS_PATH    = '/questions.json';   // in Dropbox app folder
@@ -431,10 +431,11 @@ const QUESTIONS_PATH    = '/questions.json';   // in Dropbox app folder
 // ═══════════════════════════════
 //  STATE
 // ═══════════════════════════════
-let dbxToken    = null;
-let fileList    = [];
-let currentFile = null;
-let questionDB  = null;   // loaded from questions.json
+let dbxToken          = null;
+let fileList          = [];
+let currentFile       = null;
+let questionDB        = null;
+let selectedCategories = new Set();
 
 // ═══════════════════════════════
 //  ROUTING
@@ -605,20 +606,18 @@ function genericQA(topic) {
 // ═══════════════════════════════
 //  RENDER Q&A CARDS
 // ═══════════════════════════════
-function renderQA(qaList) {
-  const container = document.getElementById('qa-list');
-  container.innerHTML = '';
+function renderQACards(qaList, container, startIndex = 0) {
   qaList.forEach((item, i) => {
+    const idx = startIndex + i;
     const card = document.createElement('div');
     card.className = 'qa-card';
 
     const qRow = document.createElement('div');
     qRow.className = 'qa-question';
-    qRow.innerHTML = `<div class="q-num">${i + 1}</div><div class="q-text">${item.q}</div>`;
+    qRow.innerHTML = `<div class="q-num">${idx + 1}</div><div class="q-text">${item.q}</div>`;
 
     const revealBtn = document.createElement('button');
     revealBtn.className = 'reveal-answer-btn';
-
     const answerBox = document.createElement('div');
     answerBox.className = 'answer-box';
 
@@ -627,7 +626,6 @@ function renderQA(qaList) {
       answerBox.innerHTML = `<div class="answer-label">Answer</div><div class="answer-text">${item.a}</div>`;
       revealBtn.addEventListener('click', () => {
         const isOpen = answerBox.classList.contains('open');
-        // Close all other open answers first
         if (!isOpen) {
           document.querySelectorAll('.answer-box.open').forEach(box => {
             box.classList.remove('open');
@@ -648,7 +646,6 @@ function renderQA(qaList) {
       revealBtn.innerHTML = `<span>📖</span> See OA Summary below`;
       revealBtn.style.color = 'var(--muted)';
       revealBtn.style.cursor = 'default';
-      answerBox.innerHTML = '';
     }
 
     card.appendChild(qRow);
@@ -656,6 +653,30 @@ function renderQA(qaList) {
     card.appendChild(answerBox);
     container.appendChild(card);
   });
+}
+
+function renderQA(qaList) {
+  const container = document.getElementById('qa-list');
+  container.innerHTML = '';
+
+  // Shuffle then show first 3; "see all" reveals the rest
+  const shuffled = [...qaList].sort(() => Math.random() - 0.5);
+  const initial  = shuffled.slice(0, 3);
+  const rest     = shuffled.slice(3);
+
+  renderQACards(initial, container, 0);
+
+  if (rest.length > 0) {
+    const seeAllBtn = document.createElement('button');
+    seeAllBtn.className = 'btn btn-outline';
+    seeAllBtn.style.cssText = 'margin-top:4px;font-size:14px;padding:12px';
+    seeAllBtn.textContent = `See all ${shuffled.length} questions for this topic`;
+    seeAllBtn.addEventListener('click', () => {
+      seeAllBtn.remove();
+      renderQACards(rest, container, 3);
+    });
+    container.appendChild(seeAllBtn);
+  }
 }
 
 // ═══════════════════════════════
@@ -765,7 +786,9 @@ document.addEventListener('click', e => {
 // ═══════════════════════════════
 document.getElementById('random-btn').addEventListener('click', () => {
   if (!fileList.length) return;
-  startQuiz(fileList[Math.floor(Math.random() * fileList.length)]);
+  const pool = getCategoryPool();
+  const pick = pool.length ? pool : fileList;
+  startQuiz(pick[Math.floor(Math.random() * pick.length)]);
 });
 
 document.getElementById('back-btn').addEventListener('click', () => show('screen-home'));
@@ -793,50 +816,65 @@ document.getElementById('back-to-questions-btn').addEventListener('click', () =>
 // ═══════════════════════════════
 //  CATEGORY GRID
 // ═══════════════════════════════
+function getCategoryPool() {
+  if (selectedCategories.size === 0) return fileList;
+  return fileList.filter(f => {
+    const n = (f.displayName || f.name).toLowerCase();
+    return [...selectedCategories].some(catName => {
+      const cat = CATEGORIES.find(c => c.name === catName);
+      return cat && cat.keys.some(k => n.includes(k.toLowerCase()));
+    });
+  });
+}
+
+function updateCategoryView() {
+  const btn  = document.getElementById('random-btn');
+  const list = document.getElementById('cat-topic-list');
+
+  if (selectedCategories.size === 0) {
+    btn.textContent = '🎲 Random Topic';
+    list.style.display = 'none';
+    return;
+  }
+
+  const pool = getCategoryPool()
+    .slice().sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name));
+
+  const label = selectedCategories.size <= 2
+    ? [...selectedCategories].join(' + ')
+    : `${selectedCategories.size} categories`;
+  btn.textContent = `🎲 Random: ${label} (${pool.length} topics)`;
+
+  list.innerHTML = pool.length
+    ? pool.map(f =>
+        `<div class="cat-topic-item" data-path="${f.path_lower}" data-name="${encodeURIComponent(f.name)}">${f.displayName || f.name}</div>`
+      ).join('')
+    : '<div style="padding:16px;color:var(--muted);font-size:14px">No topics found</div>';
+
+  list.querySelectorAll('.cat-topic-item').forEach(item => {
+    item.addEventListener('click', () => {
+      startQuiz({ name: decodeURIComponent(item.dataset.name), displayName: item.textContent, path_lower: item.dataset.path });
+    });
+  });
+  list.style.display = 'block';
+}
+
 function buildCategoryGrid() {
   const grid = document.getElementById('cat-grid');
-  const list = document.getElementById('cat-topic-list');
-  let activeChip = null;
-
   CATEGORIES.forEach(cat => {
     const chip = document.createElement('button');
     chip.className = 'cat-chip';
     chip.textContent = `${cat.emoji} ${cat.name}`;
-
     chip.addEventListener('click', () => {
-      if (activeChip === chip) {
+      if (selectedCategories.has(cat.name)) {
+        selectedCategories.delete(cat.name);
         chip.classList.remove('active');
-        list.style.display = 'none';
-        activeChip = null;
-        return;
+      } else {
+        selectedCategories.add(cat.name);
+        chip.classList.add('active');
       }
-      document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      activeChip = chip;
-
-      const matches = fileList.filter(f => {
-        const n = (f.displayName || f.name).toLowerCase();
-        return cat.keys.some(k => n.includes(k.toLowerCase()));
-      }).sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name));
-
-      if (!matches.length) { list.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:14px">No topics found</div>'; }
-      else {
-        list.innerHTML = matches.map(f =>
-          `<div class="cat-topic-item" data-path="${f.path_lower}" data-name="${encodeURIComponent(f.name)}">${f.displayName || f.name}</div>`
-        ).join('');
-        list.querySelectorAll('.cat-topic-item').forEach(item => {
-          item.addEventListener('click', () => {
-            document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
-            list.style.display = 'none';
-            activeChip = null;
-            const name = decodeURIComponent(item.dataset.name);
-            startQuiz({ name, displayName: item.textContent, path_lower: item.dataset.path });
-          });
-        });
-      }
-      list.style.display = 'block';
+      updateCategoryView();
     });
-
     grid.appendChild(chip);
   });
 }
@@ -850,7 +888,9 @@ function saveCache(files) {
 function loadCache() {
   try {
     const { ts, files } = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
-    return (Date.now() - ts < CACHE_TTL_MS) ? files : null;
+    if (Date.now() - ts >= CACHE_TTL_MS) return null;
+    files.forEach(f => { if (!f.displayName) f.displayName = cleanName(f.name); });
+    return files;
   } catch (_) { return null; }
 }
 
